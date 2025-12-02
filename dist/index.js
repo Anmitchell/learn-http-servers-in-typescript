@@ -1,5 +1,6 @@
 import express from "express";
 import APIConfig from './config.js';
+import { badRequestError, unauthorizedError, paymentRequiredError, forbiddenError } from './errors.js';
 const app = express(); // Create an express application
 const PORT = 8080; // Set the port number
 const handlerReadiness = (req, res) => {
@@ -45,8 +46,7 @@ const decodeData = async (req, res, next) => {
     try {
         // If the number of characters is more than 140 in body.
         if (req.body.body.length > 140) {
-            res.status(400).json({ error: "Chirp is too long" });
-            return;
+            throw new badRequestError("Chirp is too long. Max length is 140");
         }
         // Replace all profane words in data
         const words = req.body.body.split(' ');
@@ -61,13 +61,30 @@ const decodeData = async (req, res, next) => {
         next();
     }
     catch (error) {
-        res.status(400).json({ error: "Something Went wrong" }); // Set content type to json and send stringified object
+        next(error);
     }
 };
 // Encode object data to JSON
 const encodeData = async (req, res) => {
     res.header("Content-Type", "application/json"); // Letting the server know that we expect data in the form of JSON
     res.status(200).json(req.body); // Send the JSON encoded response body to the client
+};
+const errorHandler = (err, req, res, next) => {
+    if (err instanceof badRequestError) {
+        res.status(400).json({ error: "Chirp is too long. Max length is 140" });
+    }
+    if (err instanceof unauthorizedError) {
+        res.status(401).json("Unauthorized");
+    }
+    else if (err instanceof paymentRequiredError) {
+        res.status(402).json("Payment Required");
+    }
+    else if (err instanceof forbiddenError) {
+        res.status(403).json("Forbidden");
+    }
+    else {
+        res.status(500).json({ error: err.message });
+    }
 };
 // Serve static files from the app directory
 app.use("/app", middlewareMetricInc, middleWareLogResponses, express.static("./src/app"));
@@ -77,6 +94,7 @@ app.get("/api/healthz", middlewareMetricInc, handlerReadiness); // Health check 
 app.get("/admin/metrics", middlewareDisplayMetrics); // Display number of requests made to server
 app.post("/admin/reset", middlewareResetMetrics); // Reset number of requests made to server to 0.
 app.post("/api/validate_chirp", decodeData, encodeData);
+app.use(errorHandler); // Error handler middleware
 app.use(middleWareLogResponses); // Log responses for all requests
 // Starts the server and listens for requests on the specified port
 app.listen(PORT, () => {
