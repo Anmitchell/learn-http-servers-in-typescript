@@ -1,10 +1,17 @@
 import express from "express";
 import { Request, Response, NextFunction } from "express";
-import APIConfig from './config.js';
+import { APIConfig, DBConfig } from './config.js';
 import {badRequestError, unauthorizedError, paymentRequiredError, forbiddenError} from './errors.js'
+import postgres from "postgres";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { createUser as createUserInDB, deleteAllUsers as deleteAllUsersInDB } from './db/queries/user.js';
 
 const app = express(); // Create an express application
-const PORT = 8080; // Set the port number
+const PORT = process.env.PORT || 8080; // Set the port number
+
+const migrationClient = postgres(DBConfig.url, { max: 1 });
+await migrate(drizzle(migrationClient), DBConfig.migrationConfig);
 
 const handlerReadiness = (req: Request, res: Response) => {
     res.set("Content-Type", "text/plain");
@@ -99,6 +106,25 @@ const errorHandler = (err: Error, req: Request, res: Response, next: NextFunctio
     }
 }
 
+const createUser = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const email = req.body.email;
+        const user = await createUserInDB({ email });
+        res.status(201).json(user);
+    } catch (error) {
+        next(error);
+    }
+}
+
+const deleteAllUsers = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        await deleteAllUsersInDB();
+        res.status(200).send("OK");
+    } catch (error) {
+        next(error);
+    }
+}
+
 // Serve static files from the app directory
 app.use("/app", middlewareMetricInc, middleWareLogResponses, express.static("./src/app"));
 
@@ -107,8 +133,9 @@ app.use(express.json()); // Add express.json() middleware Before Routes that nee
 // ROUTES
 app.get("/api/healthz", middlewareMetricInc, handlerReadiness); // Health check endpoint
 app.get("/admin/metrics", middlewareDisplayMetrics); // Display number of requests made to server
-app.post("/admin/reset", middlewareResetMetrics); // Reset number of requests made to server to 0.
+app.post("/admin/reset", deleteAllUsers); // Reset number of requests made to server to 0.
 app.post("/api/validate_chirp", decodeData, encodeData);
+app.post("/api/users", createUser);
 
 app.use(errorHandler); // Error handler middleware
 app.use(middleWareLogResponses); // Log responses for all requests
