@@ -5,6 +5,7 @@ import postgres from "postgres";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { createUser as createUserInDB, deleteAllUsers as deleteAllUsersInDB } from './db/queries/user.js';
+import { createChirp as createChirpInDB } from './db/queries/chirp.js';
 const app = express(); // Create an express application
 const PORT = process.env.PORT || 8080; // Set the port number
 const migrationClient = postgres(DBConfig.url, { max: 1 });
@@ -48,28 +49,27 @@ const middlewareResetMetrics = (req, res, next) => {
 };
 /* Custom JSON Encode / Decode for transfering data over the network */
 // Decode JSON body from request
-const decodeData = async (req, res, next) => {
-    try {
-        // If the number of characters is more than 140 in body.
-        if (req.body.body.length > 140) {
-            throw new badRequestError("Chirp is too long. Max length is 140");
-        }
-        // Replace all profane words in data
-        const words = req.body.body.split(' ');
-        for (let i = 0; i < words.length; i++) {
-            if (words[i].toLowerCase() === "kerfuffle"
-                || words[i].toLowerCase() === "sharbert"
-                || words[i].toLowerCase() === "fornax") {
-                words[i] = "****";
-            }
-            req.body.cleanedBody = words.join(' ');
-        }
-        next();
-    }
-    catch (error) {
-        next(error);
-    }
-};
+// const decodeData = async (req: Request, res: Response, next: NextFunction) => {
+//     try {
+//         // If the number of characters is more than 140 in body.
+//         if (req.body.body.length > 140) {
+//             throw new badRequestError("Chirp is too long. Max length is 140");
+//         }
+//         // Replace all profane words in data
+//         const words = req.body.body.split(' ');
+//         for (let i = 0; i < words.length; i++) {
+//             if (words[i].toLowerCase() === "kerfuffle"
+//                 || words[i].toLowerCase() === "sharbert"
+//                 || words[i].toLowerCase() === "fornax") {
+//                 words[i] = "****";
+//             }
+//             req.body.cleanedBody = words.join(' ');
+//         }
+//         next();
+//     } catch (error) {
+//         next(error);
+//     }
+// };
 // Encode object data to JSON
 const encodeData = async (req, res) => {
     res.header("Content-Type", "application/json"); // Letting the server know that we expect data in the form of JSON
@@ -94,7 +94,7 @@ const errorHandler = (err, req, res, next) => {
 };
 const createUser = async (req, res, next) => {
     try {
-        const email = req.body.email;
+        const { email } = req.body;
         const user = await createUserInDB({ email });
         res.status(201).json(user);
     }
@@ -111,6 +111,21 @@ const deleteAllUsers = async (req, res, next) => {
         next(error);
     }
 };
+const createChirp = async (req, res, next) => {
+    try {
+        const { body, userId } = req.body;
+        // If the number of characters is more than 140 in body.
+        if (body.length > 140) {
+            throw new badRequestError("Chirp is too long. Max length is 140");
+        }
+        // Create new chirp here
+        const chirp = await createChirpInDB({ body, userId });
+        res.status(201).json(chirp);
+    }
+    catch (error) {
+        next(error);
+    }
+};
 // Serve static files from the app directory
 app.use("/app", middlewareMetricInc, middleWareLogResponses, express.static("./src/app"));
 app.use(express.json()); // Add express.json() middleware Before Routes that need it
@@ -118,8 +133,8 @@ app.use(express.json()); // Add express.json() middleware Before Routes that nee
 app.get("/api/healthz", middlewareMetricInc, handlerReadiness); // Health check endpoint
 app.get("/admin/metrics", middlewareDisplayMetrics); // Display number of requests made to server
 app.post("/admin/reset", deleteAllUsers); // Reset number of requests made to server to 0.
-app.post("/api/validate_chirp", decodeData, encodeData);
 app.post("/api/users", createUser);
+app.post("/api/chirps", createChirp);
 app.use(errorHandler); // Error handler middleware
 app.use(middleWareLogResponses); // Log responses for all requests
 // Starts the server and listens for requests on the specified port
